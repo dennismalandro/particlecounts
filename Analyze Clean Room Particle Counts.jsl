@@ -1,0 +1,282 @@
+﻿Names Default to Here(1);
+//Close All(Data Tables, No Save);
+//Clear Log();
+//Clear Symbols();
+
+//  Helper functions
+is_particle_count_file = Function({x}, 
+  !Is Missing(Regex(x, "Particle Count Data.xls")));
+
+extract_particle_count_files = Function({x}, {templist},
+  templist = {};
+  For(i=1, i <= N Items(x), i++,
+	If(is_particle_count_file(x[i]), Insert Into(templist, x[i])));
+  templist);
+
+
+//  Return index of max and min in a list
+which_max = Function({list}, Contains(list, Max(list)));
+which_min = Function({list}, Contains(list, Min(list)));
+
+  
+//  Extract clean room names from pc file names
+extract_clean_rooms = Function({pc_files},
+  clean_rooms = {};
+  For Each({string}, pc_files,
+    Insert Into(
+      clean_rooms,
+      Regex(string, "CLEAN[^\s]+")));
+  clean_rooms);
+
+
+//  Make a list of distinct members of a list
+get_distinct = Function({list},
+  tmp = Associative Array();
+  Insert Into(tmp, list);
+  tmp << Get Keys());
+
+
+//  Make groups of indices for each (possibly repeated) element
+get_group_indices = Function({list},
+  unique_values = get_distinct(list);
+   
+  indices = {};   
+  For Each({value}, unique_values, 
+    Insert Into(indices, Loc(list, value)));
+  indices);  
+    
+    
+//  Get pc file last modification dates
+get_modification_dates = Function({files},
+  modification_dates = {};
+  For Each({file}, files,
+    Insert Into(modification_dates,
+      Last Modification Date(data_folder || file)));
+  modification_dates);
+
+
+
+//  Pick only latest pc files in folder to avoid
+//  double counting when old files are still in folder
+subset_latest_pc_files = Function({pc_files},
+  modification_dates = get_modification_dates(pc_files);
+  clean_rooms = extract_clean_rooms(pc_files);
+  distinct_clean_rooms = get_distinct(clean_rooms);
+  indices = get_group_indices(clean_rooms);
+  
+  latest_indices_relative = {};
+  For Each({group}, indices,
+    Insert Into(
+      latest_indices_relative, 
+      which_max(modification_dates[group])));
+  
+  latest_indices_absolute = {};
+  For(i = 1, i <= N Items(latest_indices_relative), i++,
+  	Insert Into(
+  	  latest_indices_absolute, 
+  	  indices[i][latest_indices_relative[i]]));
+  
+  pc_files[latest_indices_absolute]);
+//  End helpers  
+
+
+
+//  Get particle count data folder from user and read file names
+data_folder = Pick Directory("Particle Count Data Folder");
+all_files = Files in Directory(data_folder);
+particle_count_files = extract_particle_count_files(all_files);
+particle_count_files = subset_latest_pc_files(particle_count_files);
+
+
+//  Production area lookup contains room numbers,
+//  room types, and locations in rooms
+production_area_lookup_file = Pick File(
+  "Choose the Production Area Type lookup file (JMP).",
+  {"JMP Files|jmp"});
+
+
+//  Alert levels lookup has current levels for each room
+alert_levels_file = Pick File(
+  "Choose the Alert-Action Level lookup file (JMP).",
+  {"JMP Files|jmp"});
+
+
+//  Open particle count files as a list tables
+pc_data_list = {};
+For Each({file}, particle_count_files,
+  Insert Into(pc_data_list, 
+    Open(data_folder || file, Worksheets("1"), private)));
+
+
+//  Concatenate pc files into data table
+data = pc_data_list[1];
+For(i = 2, i <= N Items(pc_data_list), i++,
+  data << Concatenate(pc_data_list[i], Append To First Table(1)));
+  
+
+//  Add/delete some columns, merge with production area lookup
+data = data << 
+
+  Delete Columns(
+    Serial, User Name, Sample Time, Cycles,
+    Sample Number, Status,
+    Size 1, Counts 1 Cumulative,
+    Size 2,
+    Size 3, Counts 3 Cumulative,
+    Size 4, Counts 4 Cumulative,
+    Size 5,
+    Size 6, Counts 6 Cumulative,
+    Size 7, Counts 7 Cumulative,
+    Size 8, Counts 8 Cumulative,
+    Size 9, Counts 9 Cumulative,
+    Size 10, Counts 10 Cumulative,
+    Size 11, Counts 11 Cumulative,
+    Size 12, Counts 12 Cumulative,
+    Size 13, Counts 13 Cumulative,
+    Size 14, Counts 14 Cumulative,
+    Size 15, Counts 15 Cumulative,
+    Size 16, Counts 16 Cumulative,
+    Flow, Temperature oF, Temperature ºF,
+    Relative Humidity  %, Relative Humudity %,
+    Air Velocity, Calibration, //Volume,
+    Batch ID, Alarm Reason,
+    Column 52, Column 53, Column 54,
+    Column 55, Column 56, Column 57,
+    Column 58, Column 59, Column 60,
+    Column 61, Column 62, Column 63,
+    Column 64, Column 65, "N/A") <<
+    
+  New Column( "0.5 µm Particles/CF", Formula( :Counts 2 Cumulative / :Volume)) <<
+  New Column( "5.0 µm Particles/CF", Formula( :Counts 5 Cumulative / :Volume)) <<
+
+  Join(
+	With(Open(production_area_lookup_file, private)),
+	Merge Same Name Columns,
+	Match Flag( 0 ),
+	By Matching Columns( :Area = :Area, :Location Name = :Location Name ),
+	Drop multiples( 0, 0 ),
+	Include Nonmatches( 0, 0 ),
+	Preserve main table order( 1 ),
+	private);
+
+
+
+//  Min/max dates in data as default date range
+date_col = Column(data, "Date Time");
+min_date = Col Min(date_col);
+max_date = Col Max(date_col);
+
+
+//  Get date range from user
+New Window( "Date Range", << Modal,
+  start_date = min_date;
+  end_date = max_date;
+  
+  HListBox(
+    PanelBox( "Start Date",
+      scal = Calendar Box( 
+        << SetFunction(Function({this},      // update start_date
+             start_date = scal << Get Date)),// with user input
+      	<< Show Time(0),
+      	<< Date(min_date))), // Default first date (min in data)
+      
+    spacerbox(Size(30, 20)),
+    
+    PanelBox( "End Date",
+      ecal = Calendar Box(
+        << SetFunction(Function({this}, 
+             end_date = ecal << Get Date)),
+  	    << Show Time(0),
+      	<< Date(max_date)))));
+
+
+
+//  Subset data to date range  
+data_date_range = data << 
+  Select Where(start_date <= :Name("Date Time") <= end_date) <<
+  Subset(Selected Rows(), Selected Columns(0), private);
+
+
+
+//  Plot counts for each room
+data_date_range <<
+  Distribution(
+	Stack( 1 ),
+	Continuous Distribution(
+		Column( :Name( "0.5 µm Particles/CF" ) ),
+		Horizontal Layout( 1 ),
+		Vertical( 0 ),
+		PpK Capability Labeling( 1 ),
+		Fit Distribution( Exponential( Quantiles( 0.95 ) ) ),
+		Custom Quantiles( 0.95, [0.95], No Empirical Likelihood Quantiles )
+	),
+	Continuous Distribution(
+		Column( :Name( "5.0 µm Particles/CF" ) ),
+		Horizontal Layout( 1 ),
+		Vertical( 0 ),
+		PpK Capability Labeling( 1 ),
+		Fit Distribution( Exponential( Quantiles( 0.95 ) ) ),
+		Custom Quantiles( 0.95, [0.95], No Empirical Likelihood Quantiles )
+	),
+	By( :Area, :Room Number, :Production Area Type )) <<
+	Set Name("Particle Count Plots");
+
+
+
+//  Calculate particle count empirical 95th percentiles for each room
+room_percentiles = data_date_range <<
+  Summary(
+	Group( :Area, :Room Number, :Production Area Type ),
+	Quantiles( 95, :Name( "0.5 µm Particles/CF" ) ),
+	Quantiles( 95, :Name( "5.0 µm Particles/CF" ) ),
+	Mean( :Name( "0.5 µm Particles/CF" ) ),
+	Mean( :Name( "5.0 µm Particles/CF" ) ),
+	Freq( "None" ),
+	Weight( "None" ),
+  private);
+
+//  Add 95th percentiles from the exponential distribution
+room_percentiles <<
+  New Column( "Exponential 95th (0.5 µm Particles/CF)",
+    Formula(Exp Quantile(0.95, :Name( "Mean(0.5 µm Particles/CF)" )))) <<
+  New Column( "Exponential 95th (5.0 µm Particles/CF)",
+    Formula(Exp Quantile(0.95, :Name( "Mean(5.0 µm Particles/CF)" ))));
+
+
+//  Merge room 95th percentiles with alert level lookup file
+new_alert_levels = room_percentiles << Join(
+	With(Open(alert_levels_file, private)),
+	Merge Same Name Columns,
+	Match Flag( 0 ),
+	By Matching Columns( :Area = :Area, :Room Number = :Room Number ),
+	Drop multiples( 0, 0 ),
+	Include Nonmatches( 0, 0 ),
+	Preserve main table order( 1 ),
+	Output Table( "Clean Room Particle Count Summaries" ));
+	
+new_alert_levels << 
+  Delete Columns(Production Area Type, Group, STATUS);
+
+new_alert_levels:Name( "Mean(5.0 µm Particles/CF)" ) << Hide(1);
+new_alert_levels:Name( "Mean(0.5 µm Particles/CF)" ) << Hide(1);
+
+
+
+//  Conditionally color cells green to signal which to use
+//    <= 100 -> exponential quantiles
+new_alert_levels << Select Where(:N Rows <= 100);
+new_alert_levels:Name("Exponential 95th (0.5 µm Particles/CF)") << 
+  Color Cells("Light Green", new_alert_levels << Get Selected Rows);
+new_alert_levels:Name("Exponential 95th (5.0 µm Particles/CF)") << 
+  Color Cells("Light Green", new_alert_levels << Get Selected Rows);
+new_alert_levels << Clear Select();
+
+//    > 100 -> empirical quantiles
+new_alert_levels << Select Where(:N Rows > 100);
+new_alert_levels:Name("Quantiles95(0.5 µm Particles/CF)") << 
+  Color Cells("Light Green", new_alert_levels << Get Selected Rows);
+new_alert_levels:Name("Quantiles95(5.0 µm Particles/CF)") << 
+  Color Cells("Light Green", new_alert_levels << Get Selected Rows);
+new_alert_levels << Clear Select();
+
+new_alert_levels << Optimize Display();
