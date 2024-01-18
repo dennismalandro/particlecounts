@@ -10,11 +10,11 @@ The script summarizes and plots particle concentrations over a user-specified da
 
 - Author: Dennis Malandro
 
-- Url: TBD
+- Url: https://github.com/dennismalandro/particlecounts
 
 ### Input files
 
-The scripts requires the hree input files (examples of which are in the "testing" folder in the file's git repository at TBD)
+The scripts requires the hree input files (examples of which are in the "testing" folder)
 
 
 - Particle-count data

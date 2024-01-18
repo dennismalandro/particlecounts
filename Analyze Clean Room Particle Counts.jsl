@@ -114,41 +114,11 @@ For(i = 2, i <= N Items(pc_data_list), i++,
   data << Concatenate(pc_data_list[i], Append To First Table(1)));
   
 
-//  Add/delete some columns, merge with production area lookup
+//  Add columns for particle concentrations
+//    and production area lookup data
 data = data << 
-
-  Delete Columns(
-    Serial, User Name, Sample Time, Cycles,
-    Sample Number, Status,
-    Size 1, Counts 1 Cumulative,
-    Size 2,
-    Size 3, Counts 3 Cumulative,
-    Size 4, Counts 4 Cumulative,
-    Size 5,
-    Size 6, Counts 6 Cumulative,
-    Size 7, Counts 7 Cumulative,
-    Size 8, Counts 8 Cumulative,
-    Size 9, Counts 9 Cumulative,
-    Size 10, Counts 10 Cumulative,
-    Size 11, Counts 11 Cumulative,
-    Size 12, Counts 12 Cumulative,
-    Size 13, Counts 13 Cumulative,
-    Size 14, Counts 14 Cumulative,
-    Size 15, Counts 15 Cumulative,
-    Size 16, Counts 16 Cumulative,
-    Flow, Temperature oF, Temperature ºF,
-    Relative Humidity  %, Relative Humudity %,
-    Air Velocity, Calibration, //Volume,
-    Batch ID, Alarm Reason,
-    Column 52, Column 53, Column 54,
-    Column 55, Column 56, Column 57,
-    Column 58, Column 59, Column 60,
-    Column 61, Column 62, Column 63,
-    Column 64, Column 65, "N/A") <<
-    
   New Column( "0.5 µm Particles/CF", Formula( :Counts 2 Cumulative / :Volume)) <<
   New Column( "5.0 µm Particles/CF", Formula( :Counts 5 Cumulative / :Volume)) <<
-
   Join(
 	With(Open(production_area_lookup_file, private)),
 	Merge Same Name Columns,
@@ -167,7 +137,7 @@ min_date = Col Min(date_col);
 max_date = Col Max(date_col);
 
 
-//  Get date range from user
+//  Popup to get date range from user
 New Window( "Date Range", << Modal,
   start_date = min_date;
   end_date = max_date;
@@ -191,7 +161,7 @@ New Window( "Date Range", << Modal,
 
 
 
-//  Subset data to date range  
+//  Subset data to user-specified date range  
 data_date_range = data << 
   Select Where(start_date <= :Name("Date Time") <= end_date) <<
   Subset(Selected Rows(), Selected Columns(0), private);
